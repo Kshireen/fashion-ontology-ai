@@ -1,0 +1,139 @@
+services:
+
+  # ── PostgreSQL with pgvector ──────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: fashion_postgres
+    environment:
+      POSTGRES_USER: fashion
+      POSTGRES_PASSWORD: fashion123
+      POSTGRES_DB: fashion_ontology_db
+    ports:
+      - "5433:5432"       # 5433 on host to avoid conflict with local postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fashion -d fashion_ontology_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: fashion_redis
+    ports:
+      - "6380:6379"       # 6380 on host to avoid conflict with local redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── MLflow Tracking Server ────────────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.2
+    container_name: fashion_mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Pipeline Runner ───────────────────────────────────────────────────────
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pipeline
+    container_name: fashion_pipeline
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://fashion:fashion123@postgres:5432/fashion_ontology_db
+      REDIS_URL: redis://redis:6379/0
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      EMBEDDING_MODEL: all-MiniLM-L6-v2
+      EMBEDDING_DIM: 384
+      BATCH_SIZE: 64
+      SAMPLE_PER_CATEGORY: 500
+    volumes:
+      - ./data:/app/data          # mount local data folder
+      - ./outputs:/app/outputs
+      - ./core:/app/core
+      - ./pipelines:/app/pipelines
+    profiles:
+      - pipeline                  # only runs when explicitly called
+
+  # ── FastAPI ───────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: fashion_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://fashion:fashion123@postgres:5432/fashion_ontology_db
+      REDIS_URL: redis://redis:6379/0
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      EMBEDDING_MODEL: all-MiniLM-L6-v2
+      EMBEDDING_DIM: 384
+      DEBUG: "true"
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./core:/app/core
+      - ./api:/app/api
+      - ./pipelines:/app/pipelines
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8001 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Celery Worker ─────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: fashion_worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://fashion:fashion123@postgres:5432/fashion_ontology_db
+      REDIS_URL: redis://redis:6379/0
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      EMBEDDING_MODEL: all-MiniLM-L6-v2
+      EMBEDDING_DIM: 384
+    volumes:
+      - ./core:/app/core
+      - ./api:/app/api
+      - ./pipelines:/app/pipelines
+    command: celery -A api.worker worker --loglevel=info --concurrency=2
+
+volumes:
+  postgres_data:
+  redis_data:
+  mlflow_data:
