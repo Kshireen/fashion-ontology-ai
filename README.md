@@ -31,7 +31,7 @@ oversized → [baggy, loose fit, relaxed]
 cold shoulder → [open shoulder, cut-out shoulder]
 ```
 
-###2. Concept Layer (Semantic Ontology)
+### 2. Concept Layer (Semantic Ontology)
 
 Defines structured meaning and relationships.
 
@@ -40,7 +40,7 @@ Garment
     ├── Maxi Dress
     └── Mini Dress
 
-###3. Instance Layer (Product Mapping)
+### 3. Instance Layer (Product Mapping)
 
 Stores real-world product data mapped to concepts.
 
