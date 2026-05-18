@@ -29,7 +29,7 @@ Handles synonyms, aliases, and variations.
 ```text
 oversized → [baggy, loose fit, relaxed]
 cold shoulder → [open shoulder, cut-out shoulder]
-
+```
 
 ###2. Concept Layer (Semantic Ontology)
 
